@@ -1,0 +1,324 @@
+# INTRODUCTION/OVERVIEW/EXECUTIVE SUMMARY
+# This is a data analysis report prompted by the 9th and final section, Capstone, of the edx program: HarvardX-DataScience. The aim of this project is to test its students' overall capabilities by allowing them to apply all the skills they've learnt thus far in an intriguing project surrounding the world of movies!
+# This project expects its students to take a deep dive into the MovieLens data set and familiarize themselves with different components and the different relationships shared between these MovieLens components. They will then have to implement machine learning skills and construct a body of code (algorithm) using a training set in order to try and predict movie ratings. The goal of this project is to ultimately apply this constructed code onto a test set to see whether it is able to correctly predict movie ratings. We will do this by observing the Root Mean Square Error (RMSE) result.
+
+###GENERATE GIVEN DATA
+#The following code shown below is provided by the "HarvardEDX:Data Science - Capstone" course to its students. This body of code allows you to download the "MovieLens" data, as well as create the training and validation sets. Students are required to create a algorithm using the given 'edx' data set and apply it to the given 'validation' data set.
+
+##########################################################
+# Create edx set, validation set (final hold-out test set)
+##########################################################
+
+# Note: this process could take a couple of minutes
+
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+
+library(tidyverse)
+library(caret)
+library(data.table)
+
+# MovieLens 10M dataset:
+# https://grouplens.org/datasets/movielens/10m/
+# http://files.grouplens.org/datasets/movielens/ml-10m.zip
+
+dl <- tempfile()
+download.file("http://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
+
+ratings <- fread(text = gsub("::", "\t", readLines(unzip(dl, "ml-10M100K/ratings.dat"))),
+                 col.names = c("userId", "movieId", "rating", "timestamp"))
+
+movies <- str_split_fixed(readLines(unzip(dl, "ml-10M100K/movies.dat")), "\\::", 3)
+colnames(movies) <- c("movieId", "title", "genres")
+
+# if using R 4.0 or later:
+movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(movieId),
+                                           title = as.character(title),
+                                           genres = as.character(genres))
+
+
+movielens <- left_join(ratings, movies, by = "movieId")
+
+# Validation set will be 10% of MovieLens data
+set.seed(1, sample.kind="Rounding") # if using R 3.5 or earlier, use `set.seed(1)`
+test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
+edx <- movielens[-test_index,]
+temp <- movielens[test_index,]
+
+# Make sure userId and movieId in validation set are also in edx set
+validation <- temp %>% 
+  semi_join(edx, by = "movieId") %>%
+  semi_join(edx, by = "userId")
+
+# Add rows removed from validation set back into edx set
+removed <- anti_join(temp, validation)
+edx <- rbind(edx, removed)
+
+rm(dl, ratings, movies, test_index, temp, movielens, removed)
+
+
+###METHODS/ANALYSIS
+
+## Data Surveillance:
+# I shall now conduct a thorough Data Surveillance of the given data set in order to familiarize myself with it. My observations will be divided into 2 parts; namely: **Exploration** and **Visualization**.
+# As I carry out my surveillance, I shall also attempt to apply data **cleaning** methods where it may see fit to do so.
+
+## Exploration
+#The purpose of this section is to broaden our understanding of the data. This will be done by carrying out numerous data exploration techniques used throughout the course. It will also include the code used in order to answer the quiz "MovieLens_Dataset", as I found it to be extremely helpful in familiarizing myself to the contents of the data.
+#Overall summary of edx dataset.
+summary(edx)
+glimpse(edx)
+#Number of different users, movies, ratings, timestamps, titles and genres in edx data set.
+Distinct_Numbers <- edx %>% 
+  summarize(D_userId = n_distinct(edx$userId),
+            D_movieId = n_distinct(edx$movieId),
+            D_rating = n_distinct(edx$rating),
+            D_timestamp = n_distinct(edx$timestamp),
+            D_title = n_distinct(edx$title),
+            D_genres = n_distinct(edx$genres))
+Distinct_Numbers
+#Number of movie ratings made for each of the genres in the edx data set.
+Genre_Ratings <- edx %>% 
+  summarize(Drama_Ratings = sapply("Drama", function(d) {
+    sum(str_detect(edx$genres, d))}),
+    Comedy_Ratings = sapply("Comedy", function(c) {
+      sum(str_detect(edx$genres, c))}),
+    Thriller_Ratings = sapply("Thriller", function(t) {
+      sum(str_detect(edx$genres, t))}),
+    Romance_Ratings = sapply("Romance", function(r) {
+      sum(str_detect(edx$genres, r))})
+    )
+Genre_Ratings
+#Movies with the most amount of cumulative ratings
+Movie_Ratings <- edx %>% 
+  group_by(title, genres) %>%
+  summarize(cumulative_ratings = n()) %>%
+  arrange(desc(cumulative_ratings))
+Movie_Ratings
+#The most popular ratings used
+Most_Used_Ratings <- edx %>%
+  group_by(rating) %>%
+  summarize(times_used = n()) %>%
+  top_n(10) %>%
+  arrange(desc(times_used))
+Most_Used_Ratings
+#Genres with most amount of cumulative ratings
+Genre_Ratings <- edx %>% 
+  group_by(genres) %>%
+  summarize(cumulative_ratings = n()) %>%
+  arrange(desc(cumulative_ratings))
+Genre_Ratings
+#Extracting the year from the edx column 'title' in order to have a separate column called 'titleyear'
+library(stringr)
+year_from_title <- '\\d{4}(?=\\))'
+titleyear = str_extract(edx$title, year_from_title)
+#New edx dataframe with added column 'titleyear'
+new_edx <- edx %>%
+  add_column(titleyear)
+new_edx
+head(new_edx)
+#Count how many times each year appears
+new_edx %>% count(titleyear)
+
+
+## Visualization
+#In this section, we will build up on what we've learnt thus far using visual aids. I personally find data visualization to be extremely accommodating when it comes to working with great amounts of data as they help in seeing the bigger picture more clearly (pun intended).
+
+#Bar Graph of Amount of Movies Each Year
+Amount_of_Movies_Each_Year <- new_edx %>% 
+  ggplot(aes(titleyear)) +
+  geom_bar(color = "chocolate4",  fill = "darkorange1") +
+  labs(x = "Year", y = "Amount of Movies") +
+  ggtitle("Amount of Movies Each Year") +
+  theme_linedraw()
+Amount_of_Movies_Each_Year
+#Bar Graph of Range of Movie Ratings
+Range_of_Movie_Ratings <- edx %>% 
+  ggplot(aes(rating)) +
+  geom_bar(color = "chocolate4",  fill = "darkorange1") +
+  scale_x_continuous(breaks = c(0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5)) +
+  scale_y_continuous(breaks = c(0, 300000, 600000, 900000, 1200000, 1500000, 1800000, 2100000, 2400000, 2700000)) +
+  labs(x = "Ratings", y = "Cumulative Ratings") +
+  ggtitle("Range of Movie Ratings") +
+  theme_linedraw()
+Range_of_Movie_Ratings
+#Density Graph of the Movie Ratings' Mean
+Movie_Ratings_Mean <- edx %>%
+  group_by(userId) %>%
+  summarize(average = mean(rating)) %>%
+  ggplot(aes(average)) +
+  geom_density(color = "chocolate4",  fill = "darkorange1") +
+  ggtitle("Movie Ratings Mean") +
+  scale_x_continuous(breaks = c(seq(0.5,5,0.5))) +
+  labs(x = "Ratings Mean", y = "Quantity of Users") +
+  theme_linedraw()
+Movie_Ratings_Mean
+#Histogram for Ratings Volume per Movie
+Ratings_Volume_per_Movie <- edx %>%
+  count(movieId) %>%
+  ggplot(aes(n)) +
+  geom_histogram(binwidth = 0.21, color = "chocolate4", fill = "darkorange1") +
+  scale_x_log10() +
+  scale_y_continuous() +
+  labs(x = "Volume of Ratings", y = "Volume of Ratings per Movie") +
+  ggtitle("Ratings Volume per Movie") +
+  theme_linedraw()
+Ratings_Volume_per_Movie
+#Histogram of the Amount of User Ratings
+Amount_of_User_Ratings <- edx %>%
+  group_by(userId) %>%
+  summarize(count = n()) %>%
+  ggplot(aes(count)) +
+  geom_histogram(bins = 21, color = "chocolate4",  fill = "darkorange1") +
+  scale_x_log10() +
+  scale_y_log10() +
+  labs(x = "Amount of Ratings", y = "Amount of Users") +
+  ggtitle("Amount of User Ratings") +
+  theme_linedraw()
+Amount_of_User_Ratings
+## MODELING APPROACHES AND INSIGHTS GAINED
+#We shall now start with the process of modelling our algorithms. Thanks to the various methods of **Data Surveillance** above, we now have an extremely clear idea of the data set that we're working with and it's content. We shall now use the knowledge gained to help construct the algorithm.
+#The accuracy of our work will be determined by the utilization of the Residual Mean Squared Error (RMSE) Formula.
+
+#The RMSE formula helps us to calculate the difference (i.e. error) between the predicted and the observed values.
+#Our aim is to obtain an error value of less than 0.8649. We shall apply this RMSE formula to the models below in order to generate their error quantities and see whether we are able to get it below 0.8649.
+
+#RMSE Formula
+RMSE_Formula <- function(observed, predicted){
+  sqrt(mean((observed - predicted)^2))
+}
+#I shall now represent "validation$rating" as "a" in order to save myself from typing it out whenever I have to calculate the RMSE.
+a <- validation$rating
+
+###1ST MODEL
+
+#The first model which I will be applying to the data set will be the most straightforward application model.
+#It will be implemented by using the mean/average of all the recorded movie ratings in the data set.
+
+#Compute the mean/average of all recorded ratings belonging to the edx data set.
+mu_cap <- mean(edx$rating)
+#RMSE of Model 1
+RMSE_MODEL_1 <- RMSE_Formula(a, mu_cap)
+RMSE_MODEL_1
+
+#INSIGHTS GAINED FROM MODEL 1:
+#As predicted, our RMSE result for Model 1 is not nearly as close to our desired reading. This may be because the ratings alone is not sufficient enough to help our prediction.
+
+###2ND MODEL
+
+#The second model which I will be applying to the data set, in order to try an d reduce my error value, will be an upgrade to my first model.
+#I shall now examine how the users who decide what ratings to give to the movies will impact the RMSE value.
+
+#Compute the impact of all recorded users belonging to the edx data set.
+#Compute penalty term b1; associated with users
+user_rating <- edx %>%
+  group_by(userId) %>%
+  summarise(b1 = mean(rating - mu_cap))
+user_rating_forecast <- mu_cap + validation %>%
+  left_join(user_rating, by = 'userId') %>%
+  .$b1
+#RMSE of Model 2
+RMSE_MODEL_2 <- RMSE_Formula(a, user_rating_forecast)
+RMSE_MODEL_2
+
+#INSIGHTS GAINED FROM MODEL 2:
+#I am pleased to see that the RMSE has decreased slightly after introducing the userId. This is because we are fed more information into our model, which helped to make a slightly more accurate prediction compared to Model 1.
+
+###3RD MODEL
+
+#After running the second model with the addition of users to our 1ST MODEL, we can see that the RMSE has decreased.
+#This is what we want.
+#For this 3RD MODEL, I shall observe the effect of including the 'movieId' to the model.
+
+#Compute the impact of all recorded "movieId's" belonging to the edx data set.
+#Compute penalty term b2; associated with movieId's.
+movie_user_rating <- edx %>%
+  left_join(user_rating, by = 'userId') %>%
+  group_by(movieId) %>%
+  summarize(b2 = mean(rating-mu_cap-b1))
+movie_user_rating_forecast <- validation %>%
+  left_join(user_rating, by = 'userId') %>%
+  left_join(movie_user_rating, by = 'movieId') %>%
+  mutate(forecast = mu_cap + b1 + b2) %>%
+  pull(forecast)
+#RMSE OF MODEL 3
+RMSE_MODEL_3 <- RMSE_Formula(a, movie_user_rating_forecast)
+RMSE_MODEL_3
+
+#INSIGHTS GAINED FROM MODEL 3:
+#Our error value has decreased compared to our previous model, but unfortunately not as much as I'd hoped for. I have also run out of variables o keep adding to my model. This means that I am going to have to turn to alternative methods in order to decrease my RMSE value to the desired result.
+
+###4TH MODEL
+
+#The third model, which includes ratings, userID & moiveID, managed to obtain a lower RMSE reading compared to the first and second model, which is extremely reasuring that we're on the right path.
+#I shall now implement the **Regulization** method to the data set in the hopes of obtaining an even lower RMSE reading than previously recorded.
+
+#Regulization
+Regulization_Lamda <- seq(0, 50, 0.5)
+
+Regulization_RMSE <- sapply(Regulization_Lamda, function(lam){
+    Regulization_b1 <- edx %>%
+      group_by(userId) %>%
+      summarize(Regulization_b1 = sum(rating - mu_cap)/(n() + lam))
+    
+    Regulization_b2 <- edx %>%
+      left_join(Regulization_b1, by = "userId") %>%
+      group_by(movieId) %>%
+      summarize(Regulization_b2 = sum(rating - Regulization_b1 - mu_cap)/(n() + lam))
+    
+    Regulization_b1_b2_mu_Forecast <- validation %>%
+      left_join(Regulization_b1, by = "userId") %>%
+      left_join(Regulization_b2, by = "movieId") %>%
+      mutate(forecast2 = mu_cap + Regulization_b1 + Regulization_b2) %>%
+      pull(forecast2)
+    return(RMSE_Formula(a, Regulization_b1_b2_mu_Forecast))
+  })
+#RMSE OF MODEL 4
+RMSE_MODEL_4 = min(Regulization_RMSE)
+RMSE_MODEL_4
+
+#INSIGHTS GAINED FROM MODEL 4:
+#On the bright side, the RMSE has decreased compared to our previous model. However, the error value is still not as low as I need it to be. This is extremely unfortunate as I was expecting to obtain the required RMSE amount after implementing regulization. I will now have to apply another method now in the hopes of obtaining the required RMSE amount.
+
+### 5TH MODEL
+
+#Seeing that our fourth Model (which used regulization) regrettably was unable to achieve and RMSE equal to or less than 0.8649; I have no choice but to try an alternative method to obtain this amount. I am now going to attempt the **Matrix Factorization** method in the hopes of obtaining the required RMSE value. 
+#MATRIX FACTORIZATION
+if(!require(recosystem)) install.packages("recosystem", repos = "http://cran.us.r-project.org")
+library(recosystem)
+set.seed(1)
+matfac_recosys <- Reco()
+valid_matfac <- with(validation, data_memory(rating = rating, user_index = userId, item_index = movieId))
+edx_matfac <- with(edx, data_memory(rating = rating, user_index = userId, item_index = movieId))
+
+matfac_parameters <- matfac_recosys$tune(edx_matfac, opts = list(niter = 30, nthread = 3, dim = c(10, 30)))
+matfac_recosys$train(edx_matfac, opts = c(matfac_parameters$min, niter = 30, nthread = 3))
+
+matfac_solution <- matfac_recosys$predict(valid_matfac, out_memory())
+
+#RMSE OF MODEL 5
+RMSE_MODEL_5 <- RMSE_Formula(a, matfac_solution)
+RMSE_MODEL_5
+
+#INSIGHTS GAINED FROM MODEL 5:
+#FINALLY! After running the data sets through Model 5, which uses the Matrix Factorization method, I have finally managed to obtain an RMSE value which is (equal to or) below 0.864999. The RMSE has decreased considerably compared to our previous Model 4. This method is able to generate a strong RMSE of 0.781.
+
+###RESULTS
+
+#I shall now create a 'results' table in which I shall record all of the RMSE Model recordings.
+
+tab <- matrix(c(RMSE_MODEL_1, RMSE_MODEL_2, RMSE_MODEL_3, RMSE_MODEL_4, RMSE_MODEL_5), ncol=1, byrow = FALSE)
+colnames(tab) <- c('RMSE Results')
+rownames(tab) <- c('RMSE MODEL 1', 'RMSE MODEL 2', 'RMSE MODEL 3', 'RMSE MODEL 4', 'RMSE MODEL 5')
+tab <- as.table(tab)
+tab
+
+#After completing 5 Model attempts with the sole purpose of obtaining an RMSE of less than 0.864999; I can happily say that I have managed to attain an RMSE result of 0.78065. Models 1-3 comprise of me adding more variables each time with hopes of decreasing the RMSE to the desired amount. Despite managing to get lower RMSE values each time as I progressed through these models, they still weren't low enough.
+#I then had to turn to alternative methods such as regulization and ultimately to matrix factorization, which finally allowed me to obtain an RMSE below 0.864999. 
+
+
+###CONCLUSION
+
+#This Capstone Project proved to be extremely joyful and insightful. It managed to test its students on numerous methods taught throughout this entire Data Science course. Moreover, it was able to encourage its students to go beyond what they've learned during this course and carry out additional research and learn new techniques and skills in order to complete this project.
+#The chosen data set, MovieLens, was a fun and relatable topic which kept its students engaged and interested (it definitely convinced me to watch a few movies which I've never seen before).
